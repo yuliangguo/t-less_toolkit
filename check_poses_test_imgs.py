@@ -12,6 +12,7 @@ import numpy as np
 import scipy.misc
 import matplotlib.pyplot as plt
 import imageio
+import cv2
 
 scene_ids = [1] # Choose which scene_ids to render. Eg. range(1, 21)
 device = 'primesense' # options: 'primesense', 'kinect', 'canon'
@@ -20,7 +21,7 @@ im_step = 100 # Consider every im_step-th image
 
 # Path to the T-LESS dataset.
 # Which you can download using the t-less_download.py script. 
-data_path = '/Add/your/path/here/t-less_v2'
+data_path = '/mnt/c04e4e8e-cdd0-4c25-8a0b-ea5a1bc86ad8/Datasets/T_LESS/t-less_v2'
 
 # Path to the folder in which the images produced by this script will be saved
 output_dir = os.path.join(data_path, 'output_check_poses_test_imgs')
@@ -88,6 +89,8 @@ for scene_id in scene_ids:
             ren_rgb = misc.draw_rect(ren_rgb, gt['obj_bb'])
 
             vis_rgb += 0.7 * ren_rgb.astype(np.float)
+            cv2.imshow('step vis', ren_rgb)
+            cv2.waitKey()
 
         # Save the visualization
         vis_rgb = 0.6 * vis_rgb + 0.4 * rgb

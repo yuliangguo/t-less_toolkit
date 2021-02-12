@@ -67,7 +67,8 @@ def load_colors(path):
     """
     with open(path, 'r') as f:
         lines = f.read().splitlines()
-        colors = [map(float, l.split(' ')) for l in lines]
+        # colors = [map(float, l.split(' ')) for l in lines]
+        colors = [tuple(map(float, l.split(' '))) for l in lines]
         return colors
 
 def load_ply(path):
