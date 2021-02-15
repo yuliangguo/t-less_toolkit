@@ -116,5 +116,5 @@ for obj_id in obj_ids:
             plt.matshow(depth_diff)
             plt.title('captured - rendered depth [mm]')
             plt.colorbar()
-            plt.savefig(vis_depth_path, pad=0)
+            plt.savefig(vis_depth_path, pad_inches=0)
             plt.close()

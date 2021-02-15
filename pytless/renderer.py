@@ -8,6 +8,39 @@ import OpenGL.GL as gl
 # WARNING: doesn't work with Qt4 (update() does not call on_draw()??)
 app.use_app('PyGlet') # Set backend
 
+
+
+# Normal vertex shader
+#-------------------------------------------------------------------------------
+_normal_vertex_code = """
+uniform mat4 u_mvp;
+uniform mat3 u_rot;
+
+attribute vec3 a_position;
+attribute vec4 a_color;
+attribute vec3 a_normal;
+
+varying vec4 v_color;
+
+void main() {
+    gl_Position = u_mvp * vec4(a_position, 1.0);
+
+    v_color = vec4(((u_rot * a_normal) + 1.0) * 0.5, 1.0);
+}
+"""
+
+# Normal fragment shader
+#-------------------------------------------------------------------------------
+_normal_fragment_code = """
+varying vec4 v_color;
+
+void main() {
+    // Face normal in eye coordinates
+    gl_FragColor = v_color;
+}
+"""
+
+
 # Color vertex shader
 #-------------------------------------------------------------------------------
 _color_vertex_code = """
@@ -17,6 +50,7 @@ uniform vec3 u_light_eye_pos;
 
 attribute vec3 a_position;
 attribute vec4 a_color;
+attribute vec3 a_normal;
 
 varying vec4 v_color;
 varying vec3 v_eye_pos;
@@ -70,6 +104,7 @@ uniform mat4 u_mv;
 uniform mat4 u_mvp;
 attribute vec3 a_position;
 attribute vec4 a_color;
+attribute vec3 a_normal;
 varying float v_eye_depth;
 
 void main() {
@@ -98,6 +133,9 @@ void main() {
 # Model-view matrix
 def _compute_model_view(model, view):
     return np.dot(model, view)
+
+def _compute_model_rot(model, view):
+    return np.dot(model, view)[:3, :3]
 
 # Model-view-projection matrix
 def _compute_model_view_proj(model, view, proj):
@@ -153,9 +191,9 @@ def _compute_calib_proj(K, x0, y0, w, h, nc, fc, window_coords='y_down'):
 class _Canvas(app.Canvas):
     def __init__(self, vertices, faces, size, K, R, t, clip_near, clip_far,
                  bg_color=(0.0, 0.0, 0.0, 0.0), ambient_weight=0.1,
-                 render_rgb=True, render_depth=True):
+                 render_rgb=True, render_depth=True, render_normal=True):
         """
-        mode is from ['rgb', 'depth', 'rgb+depth']
+        mode is from ['rgb', 'depth', 'normal', 'rgb+depth', 'rgb_normal', 'depth+normal', 'rgb+depth+normal']
         """
         app.Canvas.__init__(self, show=False, size=size)
 
@@ -167,9 +205,11 @@ class _Canvas(app.Canvas):
         self.ambient_weight = ambient_weight
         self.render_rgb = render_rgb
         self.render_depth = render_depth
+        self.render_normal = render_normal
 
         self.rgb = np.array([])
         self.depth = np.array([])
+        self.normal = np.array([])
 
         # Model matrix
         self.mat_model = np.eye(4, dtype=np.float32) # From object space to world space
@@ -198,6 +238,8 @@ class _Canvas(app.Canvas):
             self.draw_color() # Render color image
         if self.render_depth:
             self.draw_depth() # Render depth image
+        if self.render_normal:
+            self.draw_normal() # Render normal image
         app.quit() # Immediately exit the application after the first drawing
 
     def draw_color(self):
@@ -252,6 +294,33 @@ class _Canvas(app.Canvas):
             self.depth = self.read_fbo_color_rgba32f(fbo)
             self.depth = self.depth[:, :, 0] # Depth is saved in the first channel
 
+    def draw_normal(self):
+        program = gloo.Program(_normal_vertex_code, _normal_fragment_code)
+        program.bind(self.vertex_buffer)
+        # program['u_mv'] = _compute_model_view(self.mat_model, self.mat_view)
+        program['u_mvp'] = _compute_model_view_proj(self.mat_model, self.mat_view, self.mat_proj)
+        program['u_rot'] = _compute_model_rot(self.mat_model, self.mat_view)
+
+        # Texture where we render the scene
+        render_tex = gloo.Texture2D(shape=self.shape + (4,), format=gl.GL_RGBA,
+                                    internalformat=gl.GL_RGBA32F)
+        # render_tex = gloo.Texture2D(shape=self.shape + (4,))
+
+        # Frame buffer object
+        fbo = gloo.FrameBuffer(render_tex, gloo.RenderBuffer(self.shape))
+        with fbo:
+            gloo.set_state(depth_test=True)
+            gloo.set_state(cull_face=True)
+            gloo.set_cull_face('back')  # Back-facing polygons will be culled
+            gloo.set_clear_color(self.bg_color)
+            gloo.clear(color=True, depth=True)
+            gloo.set_viewport(0, 0, *self.size)
+            program.draw('triangles', self.index_buffer)
+
+            # Retrieve the contents of the FBO texture
+            self.normal = self.read_fbo_color_rgba32f(fbo)
+            self.normal = self.normal[:, :, :3]
+
     @staticmethod
     def read_fbo_color_rgba32f(fbo):
         """
@@ -271,7 +340,7 @@ class _Canvas(app.Canvas):
 # Ref: https://github.com/vispy/vispy/blob/master/examples/demo/gloo/offscreen.py
 def render(model, im_size, K, R, t, clip_near=100, clip_far=2000,
            surf_color=None, bg_color=(0.0, 0.0, 0.0, 0.0),
-           ambient_weight=0.1, mode='rgb+depth'):
+           ambient_weight=0.1, mode='rgb+depth+normal'):
 
     # Process input data
     #---------------------------------------------------------------------------
@@ -290,16 +359,17 @@ def render(model, im_size, K, R, t, clip_near=100, clip_far=2000,
     else:
         colors = np.tile(list(surf_color) + [1.0], [model['pts'].shape[0], 1])
     vertices_type = [('a_position', np.float32, 3),
-                     #('a_normal', np.float32, 3),
+                     ('a_normal', np.float32, 3),
                      ('a_color', np.float32, colors.shape[1])]
-    vertices = np.array(list(zip(model['pts'], colors)), vertices_type)
+    vertices = np.array(list(zip(model['pts'], model['normals'], colors)), vertices_type)
 
     # Rendering
     #---------------------------------------------------------------------------
-    render_rgb = mode in ['rgb', 'rgb+depth']
-    render_depth = mode in ['depth', 'rgb+depth']
+    render_rgb = mode in ['rgb', 'rgb+depth', 'rgb+normal', 'rgb+depth+normal']
+    render_depth = mode in ['depth', 'rgb+depth', 'depth+normal', 'rgb+depth+normal']
+    render_normal = mode in ['normal', 'rgb+normal', 'depth+normal', 'rgb+depth+normal']
     c = _Canvas(vertices, model['faces'], im_size, K, R, t, clip_near, clip_far,
-                bg_color, ambient_weight, render_rgb, render_depth)
+                bg_color, ambient_weight, render_rgb, render_depth, render_normal)
     app.run()
 
     #---------------------------------------------------------------------------
@@ -307,8 +377,16 @@ def render(model, im_size, K, R, t, clip_near=100, clip_far=2000,
         out = c.rgb
     elif mode == 'depth':
         out = c.depth
+    elif mode == 'normal':
+        out = c.normal
     elif mode == 'rgb+depth':
         out = c.rgb, c.depth
+    elif mode == 'rgb+normal':
+        out = c.rgb, c.normal
+    elif mode == 'depth+normal':
+        out = c.depth, c.normal
+    elif mode == 'rgb+depth+normal':
+        out = c.rgb, c.depth, c.normal
     else:
         out = None
         print('Error: Unknown rendering mode.')

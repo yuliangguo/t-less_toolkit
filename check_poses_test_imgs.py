@@ -36,6 +36,7 @@ rgb_ext = {'primesense': 'png', 'kinect': 'png', 'canon': 'jpg'}
 obj_colors_path = os.path.join('data', 'obj_rgb.txt')
 vis_rgb_path_mask = os.path.join(output_dir, '{:02d}_{}_{}_{:04d}_rgb.png')
 vis_depth_path_mask = os.path.join(output_dir, '{:02d}_{}_{}_{:04d}_depth_diff.png')
+vis_normal_path_mask = os.path.join(output_dir, '{:02d}_{}_{}_{:04d}_normal.png')
 
 misc.ensure_dir(output_dir)
 obj_colors = inout.load_colors(obj_colors_path)
@@ -89,8 +90,8 @@ for scene_id in scene_ids:
             ren_rgb = misc.draw_rect(ren_rgb, gt['obj_bb'])
 
             vis_rgb += 0.7 * ren_rgb.astype(np.float)
-            cv2.imshow('step vis', ren_rgb)
-            cv2.waitKey()
+            # cv2.imshow('step vis', ren_rgb)
+            # cv2.waitKey()
 
         # Save the visualization
         vis_rgb = 0.6 * vis_rgb + 0.4 * rgb
@@ -98,7 +99,7 @@ for scene_id in scene_ids:
         vis_rgb_path = vis_rgb_path_mask.format(scene_id, device, model_type, im_id)
         imageio.imwrite(vis_rgb_path, vis_rgb.astype(np.uint8))
 
-        # Visualization #2
+        # Visualization #2: depth difference and normal map
         #-----------------------------------------------------------------------
         if device != 'canon':
             # Load depth image
@@ -109,6 +110,7 @@ for scene_id in scene_ids:
             # Render the objects at the ground truth poses
             im_size = (depth.shape[1], depth.shape[0])
             ren_depth = np.zeros(depth.shape, np.float)
+            ren_normal = np.zeros([depth.shape[0], depth.shape[1], 3], np.float)
             for gt in scene_gt[im_id]:
                 model = models[gt['obj_id']]
                 R = gt['cam_R_m2c']
@@ -116,23 +118,35 @@ for scene_id in scene_ids:
 
                 # Render the current object
                 ren_depth_obj = renderer.render(model, im_size, K, R, t, mode='depth')
+                ren_normal_obj = renderer.render(model, im_size, K, R, t, mode='normal')
 
                 # Add to the final depth map only the parts of the surface that
                 # are closer than the surfaces rendered before
                 visible_mask = np.logical_or(ren_depth == 0, ren_depth_obj < ren_depth)
                 mask = np.logical_and(ren_depth_obj != 0, visible_mask)
                 ren_depth[mask] = ren_depth_obj[mask].astype(np.float)
+                mask_brd = np.repeat(mask[:, :, np.newaxis], 3, axis=2)
+                ren_normal[mask_brd] = ren_normal_obj[mask_brd].astype(np.float)
 
             # Calculate the depth difference at pixels where both depth maps
             # are valid
             valid_mask = (depth > 0) * (ren_depth > 0)
             depth_diff = valid_mask * (depth - ren_depth.astype(np.float))
 
-            # Save the visualization
+            # Save the visualization of depth diff
             vis_depth_path = vis_depth_path_mask.format(scene_id, device,
                                                         model_type, im_id)
             plt.matshow(depth_diff)
             plt.title('captured - rendered depth [mm]')
             plt.colorbar()
-            plt.savefig(vis_depth_path, pad=0)
+            plt.savefig(vis_depth_path, pad_inches=0)
+            plt.close()
+
+            # Save the visualization of normal map
+            vis_normal_path = vis_normal_path_mask.format(scene_id, device,
+                                                          model_type, im_id)
+            plt.matshow(ren_normal)
+            # plt.title('captured - rendered normal')
+            plt.axis('off')
+            plt.savefig(vis_normal_path, bbox_inches='tight', pad_inches=0)
             plt.close()
