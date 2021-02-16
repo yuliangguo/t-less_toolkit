@@ -13,9 +13,9 @@ import scipy.misc
 import matplotlib.pyplot as plt
 import imageio
 
-obj_ids = [1] # Choose which scene_ids to render. Eg. range(1, 31)
+obj_ids = [25] # Choose which scene_ids to render. Eg. range(1, 31)
 device = 'primesense' # options: 'primesense', 'kinect', 'canon'
-model_type = 'cad' # options: 'cad', 'reconst'
+model_type = 'cad_subdivided' # options: 'cad', 'cad_subdivided', 'reconst'
 im_step = 100 # Consider every im_step-th image
 
 # Path to the T-LESS dataset
@@ -35,6 +35,7 @@ rgb_ext = {'primesense': 'png', 'kinect': 'png', 'canon': 'jpg'}
 obj_colors_path = os.path.join('data', 'obj_rgb.txt')
 vis_rgb_path_mask = os.path.join(output_dir, '{:02d}_{}_{}_{:04d}_rgb.png')
 vis_depth_path_mask = os.path.join(output_dir, '{:02d}_{}_{}_{:04d}_depth_diff.png')
+vis_normal_path_mask = os.path.join(output_dir, '{:02d}_{}_{}_{:04d}_normal.png')
 
 misc.ensure_dir(output_dir)
 obj_colors = inout.load_colors(obj_colors_path)
@@ -104,17 +105,26 @@ for obj_id in obj_ids:
             # with the training image
             im_size = (depth.shape[1], depth.shape[0])
             ren_depth = renderer.render(model, im_size, K, R, t, mode='depth')
+            ren_normal = renderer.render(model, im_size, K, R, t, mode='normal')
 
             # Calculate the depth difference at pixels where both depth maps
             # are valid
             valid_mask = (depth > 0) * (ren_depth > 0)
             depth_diff = valid_mask * (depth - ren_depth.astype(np.float))
 
-            # Save the visualization
+            # Save the visualization of depth image
             vis_depth_path = vis_depth_path_mask.format(obj_id, device,
                                                         model_type, im_id)
             plt.matshow(depth_diff)
             plt.title('captured - rendered depth [mm]')
             plt.colorbar()
             plt.savefig(vis_depth_path, pad_inches=0)
+            plt.close()
+
+            # Save the visualization of normal map
+            vis_normal_path = vis_normal_path_mask.format(obj_id, device,
+                                                          model_type, im_id)
+            plt.matshow(ren_normal)
+            plt.axis('off')
+            plt.savefig(vis_normal_path, bbox_inches='tight', pad_inches=0)
             plt.close()

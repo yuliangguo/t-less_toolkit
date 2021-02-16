@@ -16,7 +16,7 @@ import cv2
 
 scene_ids = [1] # Choose which scene_ids to render. Eg. range(1, 21)
 device = 'primesense' # options: 'primesense', 'kinect', 'canon'
-model_type = 'cad' # options: 'cad', 'reconst'
+model_type = 'cad_subdivided' # options: 'cad', 'cad_subdivided' 'reconst'
 im_step = 100 # Consider every im_step-th image
 
 # Path to the T-LESS dataset.
