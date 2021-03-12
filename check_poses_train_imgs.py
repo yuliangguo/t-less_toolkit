@@ -20,7 +20,7 @@ im_step = 100 # Consider every im_step-th image
 
 # Path to the T-LESS dataset
 # Which you can download using the t-less_download.py script. 
-data_path = '/mnt/c04e4e8e-cdd0-4c25-8a0b-ea5a1bc86ad8/Datasets/T_LESS/t-less_v2'
+data_path = '/mnt/LinuxDataFast/Datasets/T_LESS/t-less_v2'
 
 # Path to the folder in which the images produced by this script will be saved
 output_dir = os.path.join(data_path, 'output_check_poses_train_imgs')
@@ -107,6 +107,11 @@ for obj_id in obj_ids:
             ren_depth = renderer.render(model, im_size, K, R, t, mode='depth')
             ren_normal = renderer.render(model, im_size, K, R, t, mode='normal')
 
+
+            pts_3d_cam = np.matmul(R, model['pts'].transpose()) + t
+            pts_img = np.matmul(K, pts_3d_cam)
+            x2d = pts_img[0, :] / pts_img[2, :]
+            y2d = pts_img[1, :] / pts_img[2, :]
             # Calculate the depth difference at pixels where both depth maps
             # are valid
             valid_mask = (depth > 0) * (ren_depth > 0)
